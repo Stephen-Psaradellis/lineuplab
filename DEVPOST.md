@@ -3,7 +3,7 @@
 **Tagline:** An AI talent buyer for independent venues: book the acts your block already
 loves, sized to your room.
 
-**Links (fill in before submitting):** live demo https://lineuplab.s-n-psaradellis.workers.dev · repo `<public repo URL>`
+**Links (fill in before submitting):** live demo https://lineuplab.s-n-psaradellis.workers.dev · repo https://github.com/Stephen-Psaradellis/lineuplab
 
 ---
 
@@ -96,7 +96,7 @@ One brief, start to finish. The key stays in a Worker secret; the browser never 
 Live: https://lineuplab.s-n-psaradellis.workers.dev. Locally, with Node 20+:
 
 ```bash
-git clone <public repo URL> && cd lineuplab
+git clone https://github.com/Stephen-Psaradellis/lineuplab && cd lineuplab
 npm install
 npx wrangler dev --env demo   # offline, no key, synthetic data, says so on screen
 npm test                      # 39 tests, no network
