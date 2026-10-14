@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LineupLab</title>
+  <meta name="description" content="LineupLab is an AI talent buyer for independent venues: Qloo taste data for your neighbourhood, sized to your room, with co-promotion partners and ready-to-post copy.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="/" aria-label="LineupLab home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="18" width="5" height="11" rx="1.5"/><rect x="10.5" y="11" width="5" height="18" rx="1.5"/><rect x="18" y="4" width="5" height="25" rx="1.5"/><circle cx="27" cy="9" r="3"/></svg>
+        <span class="brand-name">LineupLab</span>
+      </a>
+      <p class="tagline">An AI talent buyer for independent venues</p>
+      <div class="header-actions">
+        <span class="powered" title="Recommendations come from the Qloo Taste AI API">Powered by Qloo taste data</span>
+        <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch colour theme">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="demo-banner" id="demo-banner" role="status" hidden>
+    <div class="wrap"><strong>Demo data.</strong> <span id="demo-detail">Running without live keys: every artist, place and brand on this page is synthetic and fictional.</span></div>
+  </div>
+
+  <main id="main" class="wrap layout">
+    <section class="panel form-panel" aria-labelledby="form-title">
+      <h1 id="form-title" class="panel-title">Your room, your crowd</h1>
+      <p class="muted small">Tell LineupLab about the venue. The agent asks Qloo who this neighbourhood's audience actually over-indexes on, under a size your room can hold.</p>
+      <form id="venue-form" novalidate>
+        <div class="field">
+          <label for="venueName">Venue name</label>
+          <input id="venueName" name="venueName" type="text" maxlength="80" autocomplete="organization" placeholder="The Lantern Room">
+        </div>
+        <div class="field">
+          <label for="location">Neighbourhood and city <span class="req" aria-hidden="true">*</span></label>
+          <input id="location" name="location" type="text" maxlength="120" required aria-describedby="location-hint" placeholder="Wicker Park, Chicago">
+          <p class="hint" id="location-hint">Sent to Qloo as the location signal. Be as local as you can.</p>
+        </div>
+        <fieldset class="field">
+          <legend>Capacity <span class="req" aria-hidden="true">*</span></legend>
+          <div class="segmented" id="capacity-group">
+            <input type="radio" id="cap-small" name="capacity" value="small" checked><label for="cap-small">Up to 150</label>
+            <input type="radio" id="cap-medium" name="capacity" value="medium"><label for="cap-medium">150-400</label>
+            <input type="radio" id="cap-large" name="capacity" value="large"><label for="cap-large">400-1,000</label>
+          </div>
+          <p class="hint" id="cap-hint">Qloo will only return acts with popularity up to 0.60.</p>
+        </fieldset>
+        <div class="field">
+          <label for="age">Main crowd age</label>
+          <select id="age" name="age">
+            <option value="any">Mixed / all ages</option>
+            <option value="24_and_younger">24 and younger</option>
+            <option value="25_to_29" selected>25 to 29</option>
+            <option value="30_to_34">30 to 34</option>
+            <option value="35_to_44">35 to 44</option>
+            <option value="45_to_54">45 to 54</option>
+            <option value="55_and_older">55 and older</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="genres">Genres or vibe <span class="opt">optional</span></label>
+          <input id="genres" name="genres" type="text" maxlength="200" placeholder="dream pop, shoegaze, neo soul">
+        </div>
+        <fieldset class="field">
+          <legend>Acts that drew well before <span class="opt">optional, up to 3</span></legend>
+          <div class="acts">
+            <input name="pastAct" type="text" maxlength="80" aria-label="Past act 1">
+            <input name="pastAct" type="text" maxlength="80" aria-label="Past act 2">
+            <input name="pastAct" type="text" maxlength="80" aria-label="Past act 3">
+          </div>
+        </fieldset>
+        <div class="field field-inline">
+          <label for="dates">Dates to fill</label>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-step="-1" aria-label="One fewer date">&minus;</button>
+            <input id="dates" name="dates" type="number" min="1" max="6" value="3" inputmode="numeric">
+            <button type="button" class="step-btn" data-step="1" aria-label="One more date">+</button>
+          </div>
+        </div>
+        <div class="form-errors" id="form-errors" role="alert" hidden></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="build-btn">Build my lineup</button>
+          <button type="button" class="btn btn-ghost" id="example-btn">Try an example</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="results" aria-labelledby="results-title">
+      <h2 id="results-title" class="visually-hidden">Results</h2>
+
+      <div class="empty-state" id="empty-state">
+        <h2 class="empty-title">Book the acts your block already loves</h2>
+        <ol class="how">
+          <li><span class="how-n">1</span><div><strong>Local taste, not fame.</strong> Qloo ranks artists by how strongly <em>this</em> neighbourhood's audience over-indexes on them.</div></li>
+          <li><span class="how-n">2</span><div><strong>Sized to your room.</strong> Your capacity becomes a popularity ceiling, so a 150-cap bar is never told to book a stadium act.</div></li>
+          <li><span class="how-n">3</span><div><strong>Fill the room.</strong> Nearby places and brands the same fans love, with partnership ideas and announcement copy.</div></li>
+        </ol>
+        <p class="muted small">Every step the agent takes, including each Qloo call, is shown live as it runs. Flip to <strong>Without Qloo</strong> afterwards to see what the same AI suggests on its own.</p>
+      </div>
+
+      <details class="trace" id="trace" hidden open>
+        <summary><span class="trace-title">Agent trace</span> <span class="trace-meta" id="trace-meta"></span></summary>
+        <ol class="trace-list" id="trace-list" aria-live="polite" aria-relevant="additions"></ol>
+      </details>
+
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+
+      <div class="error-box" id="error-box" role="alert" hidden>
+        <strong>Could not build a lineup.</strong>
+        <p id="error-text"></p>
+        <button type="button" class="btn btn-ghost" id="retry-btn">Try again</button>
+      </div>
+
+      <div class="skeleton" id="skeleton" hidden aria-hidden="true">
+        <div class="sk-card"></div><div class="sk-card"></div>
+      </div>
+
+      <div class="output" id="output" hidden>
+        <div class="toolbar">
+          <div class="tabs" role="tablist" aria-label="Compare recommendations">
+            <button type="button" role="tab" id="tab-qloo" aria-controls="view-qloo" aria-selected="true">With Qloo</button>
+            <button type="button" role="tab" id="tab-base" aria-controls="view-base" aria-selected="false" tabindex="-1">Without Qloo</button>
+            <button type="button" role="tab" id="tab-side" aria-controls="view-side" aria-selected="false" tabindex="-1">Side by side</button>
+          </div>
+          <div class="exports">
+            <button type="button" class="btn btn-small" id="copy-btn">Copy brief</button>
+            <button type="button" class="btn btn-small" id="print-btn">Print brief</button>
+          </div>
+        </div>
+        <p class="summary" id="summary"></p>
+
+        <div role="tabpanel" id="view-qloo" aria-labelledby="tab-qloo" tabindex="0">
+          <h3 class="section-title">Recommended lineup</h3>
+          <div class="lineup" id="lineup"></div>
+          <h3 class="section-title">Co-promote with</h3>
+          <p class="muted small">Places near the venue and brands that the lineup's fans over-index on, from Qloo's cross-domain taste graph.</p>
+          <div class="partners">
+            <div><h4 class="sub-title">Nearby places</h4><ul class="partner-list" id="places"></ul></div>
+            <div><h4 class="sub-title">Brands</h4><ul class="partner-list" id="brands"></ul></div>
+          </div>
+        </div>
+
+        <div role="tabpanel" id="view-base" aria-labelledby="tab-base" tabindex="0" hidden>
+          <h3 class="section-title">Without Qloo</h3>
+          <p class="muted small" id="base-note">The same model, given the same brief, with no Qloo data. Each name was then looked up in Qloo to check whether your room could hold it.</p>
+          <div class="lineup" id="baseline"></div>
+        </div>
+
+        <div role="tabpanel" id="view-side" aria-labelledby="tab-side" tabindex="0" hidden>
+          <div class="side" id="side"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer wrap">
+    <p class="muted small">LineupLab is open source (MIT). Taste data from the <a href="https://www.qloo.com/" rel="noopener">Qloo</a> Taste AI API; language steps by Llama 3.3 on Cloudflare Workers AI. Built for the Qloo Agentic Hackathon.</p>
+  </footer>
+
+  <section class="brief" id="brief" aria-hidden="true"></section>
+</body>
+</html>

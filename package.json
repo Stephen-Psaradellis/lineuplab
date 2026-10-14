@@ -1,0 +1,21 @@
+{
+  "name": "lineuplab",
+  "version": "1.0.0",
+  "description": "An AI talent buyer for independent venues, powered by Qloo taste data and Cloudflare Workers AI.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:demo": "wrangler dev --env demo",
+    "dev:node": "node harness/dev-server.mjs",
+    "deploy": "wrangler deploy",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

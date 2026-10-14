@@ -1,0 +1,33 @@
+name = "lineuplab"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# Static front end (public/) served by Workers Static Assets; /api/* falls through to the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Workers AI (Llama 3.3 70B). The model id lives in src/config.js.
+[ai]
+binding = "AI"
+
+[observability]
+enabled = true
+
+# Optional: a KV namespace for cross-isolate caching of Qloo responses and full results.
+# Without it LineupLab caches in memory and in the Workers Cache API.
+#   npx wrangler kv namespace create CACHE
+[[kv_namespaces]]
+binding = "CACHE"
+id = "0e7ef74d169f4ed8b1f390b6433071a1"
+
+# Secret (never committed):  npx wrangler secret put QLOO_API_KEY
+# Without QLOO_API_KEY the app runs in demo mode on synthetic fixtures and says so on screen.
+
+# Demo environment: no AI binding and no Qloo key, so it runs fully offline with no login.
+#   npx wrangler dev --env demo
+[env.demo]
+name = "lineuplab-demo"
+
+[env.demo.vars]
+LINEUPLAB_MOCK = "1"
