@@ -60,6 +60,24 @@ const r2 = (n) => (typeof n === 'number' ? Math.round(n * 100) / 100 : null);
 const clip = (s, n) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, n) : '');
 const lc = (s) => String(s || '').toLowerCase().trim();
 
+// Qloo answers a location it cannot match to a locality with HTTP 400, not an empty 200
+// (docs: signal.location.query). So every location-bearing call can walk down this list:
+// the planner's phrase, the user's own words, then each broader comma tail ("Chicago, IL").
+// One- to three-letter tails ("IL") are skipped - a fuzzy match on those lands anywhere.
+export function localityLadder(...names) {
+  const out = [];
+  const add = (s) => {
+    const t = clip(s, LIMITS.location);
+    if (t && !out.some((x) => lc(x) === lc(t))) out.push(t);
+  };
+  names.forEach(add);
+  for (const n of names) {
+    const parts = clip(n, LIMITS.location).split(',').map((p) => p.trim()).filter(Boolean);
+    for (let i = 1; i < parts.length; i++) if (parts.slice(i).join('').length > 3) add(parts.slice(i).join(', '));
+  }
+  return out.slice(0, 4);
+}
+
 async function pool(items, size, fn) {
   const out = new Array(items.length);
   let i = 0;
@@ -257,6 +275,38 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   const planFallback = !planRes.ok || keywords === null;
   if (keywords === null) keywords = fallbackKeywords(input.genres);
   const audienceNote = clip(planRes.data?.audience_note, 200);
+
+  // Every location-bearing Qloo call goes through here. On a 400 with a location set it
+  // moves to the next broader name and retries. With none left, a location SIGNAL (artists,
+  // brands) is dropped and the run goes on; a location FILTER (places) returns empty, since
+  // places anywhere are useless. A 400 that survives without a location is a real error.
+  const ladder = localityLadder(locationQuery, input.location);
+  let rung = 0;
+  async function insightsAt(build, o, { filter = false } = {}) {
+    for (;;) {
+      const loc = o.location === null ? null : ladder[rung] ?? null;
+      if (filter && !loc) return { entities: [], request: 'skipped: no matched locality', cached: false, ms: 0 };
+      try {
+        const r = await qloo.insights(build({ ...o, location: loc }));
+        if (loc) locationQuery = loc;
+        return { ...r, located: !!loc };
+      } catch (err) {
+        if (!(err && err.name === 'QlooError' && err.status === 400 && loc)) throw err;
+        rung++;
+        const next = ladder[rung];
+        step({
+          lane: 'qloo',
+          status: 'fallback',
+          title: `qloo_insights: Qloo matched no locality for "${loc}"`,
+          detail: next
+            ? `Qloo answers an unmatched place name with HTTP 400, so the agent retries with the broader "${next}".`
+            : filter
+              ? 'No broader name left, so nearby places are skipped.'
+              : 'No broader name left, so the agent continues without the location signal: picks fit the audience, not this neighbourhood.',
+        });
+      }
+    }
+  }
   if (llm.degradedReason) {
     step({
       lane: 'llm',
@@ -330,7 +380,7 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
     const o = rs.change(opts);
     if (rs.id !== 'full' && used && JSON.stringify(o) === JSON.stringify(used)) continue; // nothing to relax
     const params = buildArtistParams(o);
-    const r = await qloo.insights(params);
+    const r = await insightsAt(buildArtistParams, o);
     used = o;
     const empty = r.entities.length === 0;
     step({
@@ -357,7 +407,7 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   }
 
   // 5. local + trend signals
-  const [noLoc, noTrend] = await Promise.all([qloo.insights(buildArtistParams({ ...opts, location: null })), qloo.insights(buildArtistParams({ ...opts, trends: null }))]);
+  const [noLoc, noTrend] = await Promise.all([qloo.insights(buildArtistParams({ ...opts, location: null })), insightsAt(buildArtistParams, { ...opts, trends: null })]);
   step({
     lane: 'qloo',
     status: noLoc.cached ? 'cached' : 'ok',
@@ -430,20 +480,21 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   const chosenIds = lineup.flatMap((d) => [d.headliner.entity_id, d.support.entity_id]).filter(Boolean).slice(0, 8);
 
   // 7. cross-domain: places near the venue + brands
-  const placeParams = buildPlaceParams({ location: locationQuery, artistIds: chosenIds, age: input.age });
-  let placesR = await qloo.insights(placeParams);
+  let placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, age: input.age }, { filter: true });
   let placeNote = '';
-  if (!placesR.entities.length) {
+  if (!placesR.entities.length && placesR.located) {
     step({ lane: 'qloo', status: 'empty', title: 'qloo_insights: nearby places (empty)', detail: 'Empty 200; retrying with a wider radius and no age signal.', request: placesR.request, stats: [{ label: 'results', value: '0' }], ms: placesR.ms });
-    placesR = await qloo.insights(buildPlaceParams({ location: locationQuery, artistIds: chosenIds, radius: QLOO.placeRadiusMeters * 3 }));
+    placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, radius: QLOO.placeRadiusMeters * 3 }, { filter: true });
     placeNote = ' (wider radius)';
   }
-  const brandsR = await qloo.insights(buildBrandParams({ location: locationQuery, artistIds: chosenIds, age: input.age }));
+  const brandsR = await insightsAt(buildBrandParams, { location: locationQuery, artistIds: chosenIds, age: input.age });
   step({
     lane: 'qloo',
     status: placesR.entities.length ? (placesR.cached ? 'cached' : 'ok') : 'empty',
     title: 'qloo_insights: places near the venue these fans over-index on',
-    detail: `Cross-domain: places within ${placeNote ? QLOO.placeRadiusMeters * 3 : QLOO.placeRadiusMeters} m of "${locationQuery}", ranked by the taste of the ${chosenIds.length} acts on the lineup${placeNote}.`,
+    detail: placesR.located
+      ? `Cross-domain: places within ${placeNote ? QLOO.placeRadiusMeters * 3 : QLOO.placeRadiusMeters} m of "${locationQuery}", ranked by the taste of the ${chosenIds.length} acts on the lineup${placeNote}.`
+      : 'Qloo matched no locality for this venue, so nearby places are skipped rather than guessed.',
     request: placesR.request,
     stats: topStats(placesR.entities),
     ms: placesR.ms,

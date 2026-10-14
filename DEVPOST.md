@@ -121,6 +121,10 @@ For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
   over-tight query with zero results instead of an error. The agent treats an empty result
   as a signal: it shows it in the trace and relaxes one constraint at a time (tags, seeds,
   ceiling, age) rather than silently showing nothing.
+- **Place names Qloo cannot match.** An unmatched locality is the opposite case: a 400,
+  not an empty 200. The agent walks from the planner's phrase to the user's words to the
+  city ("Wicker Park, Chicago" -> "Chicago"), says so in the trace, and if nothing matches
+  it drops the location signal for acts and skips nearby places instead of failing the run.
 - **Keeping the LLM honest.** Models like to name famous acts. The lineup picker only sees
   Qloo candidates, and any name it returns that is not in that set is rejected in code and
   replaced by a deterministic pick, with the rejection shown in the trace.

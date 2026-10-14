@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker, { rateLimited, resetRateLimits } from '../src/worker.js';
 import { clearMemoryCache } from '../src/cache.js';
-import { runAgent, validateInput } from '../src/agent.js';
+import { runAgent, validateInput, localityLadder } from '../src/agent.js';
 import { createQloo } from '../src/qloo.js';
 import { createLLM } from '../src/llm.js';
 import { mockQlooFetch } from '../src/mock/qloo-mock.js';
@@ -174,4 +174,53 @@ test('a failing AI binding with live Qloo degrades to templates, never to fictio
   assert.equal(r.baseline.lineup.length, 0);
   assert.ok(r.lineup.every((d) => d.blurb.length > 0));
   assert.ok(r.trace.some((s) => s.status === 'fallback'));
+});
+
+test('localityLadder walks from the planner phrase to broader comma tails, skipping short ones', () => {
+  assert.deepEqual(localityLadder('Wicker Park, Chicago, IL', 'Wicker Park, Chicago'), ['Wicker Park, Chicago, IL', 'Wicker Park, Chicago', 'Chicago, IL', 'Chicago']);
+  assert.deepEqual(localityLadder('Bushwick', 'bushwick'), ['Bushwick']);
+  assert.deepEqual(localityLadder('', 'Leith, Edinburgh'), ['Leith, Edinburgh', 'Edinburgh']);
+});
+
+// Qloo answers an unmatched locality with HTTP 400 (signal.location.query docs).
+function rejectLocalities(reject) {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    const p = new URL(url).searchParams;
+    const loc = p.get('signal.location.query') || p.get('filter.location.query');
+    if (loc) seen.push(loc);
+    if (loc && reject(loc)) return new Response(JSON.stringify({ success: false, error: 'locality not found' }), { status: 400 });
+    return mockQlooFetch(url, init);
+  };
+  return { fetchImpl, seen };
+}
+
+test('an unmatched neighbourhood (Qloo 400) falls back to the city instead of failing the run', async () => {
+  const { fetchImpl, seen } = rejectLocalities((loc) => /wicker park/i.test(loc));
+  const v = validateInput(BRIEF);
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
+  const r = await runAgent(v.input, { qloo, llm: createLLM({ env: {} }) });
+  assert.equal(r.lineup.length, 3);
+  assert.ok(r.trace.some((s) => s.status === 'fallback' && /matched no locality/.test(s.title)));
+  assert.equal(r.plan.location_query, 'Chicago');
+  assert.ok(seen.includes('Chicago'));
+  assert.ok(r.copromote.places.length > 0, 'places found around the broader locality');
+});
+
+test('when no name matches a locality, artists run without location and places are skipped', async () => {
+  const { fetchImpl } = rejectLocalities(() => true);
+  const v = validateInput(BRIEF);
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
+  const r = await runAgent(v.input, { qloo, llm: createLLM({ env: {} }) });
+  assert.equal(r.lineup.length, 3);
+  assert.equal(r.copromote.places.length, 0);
+  assert.ok(r.trace.some((s) => /without the location signal/.test(s.detail || '')));
+  assert.ok(r.trace.some((s) => /nearby places are skipped/.test(s.detail || '')));
+});
+
+test('a 400 that is not about the location still fails loudly', async () => {
+  const fetchImpl = async (url, init) => (url.includes('/v2/insights') ? new Response('{}', { status: 400 }) : mockQlooFetch(url, init));
+  const v = validateInput(BRIEF);
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
+  await assert.rejects(runAgent(v.input, { qloo, llm: createLLM({ env: {} }) }), (e) => e.name === 'QlooError' && e.status === 400);
 });

@@ -179,7 +179,10 @@ server-side only; they are never written to the repository.
 `src/mock/qloo-mock.js` generates **synthetic** artists, places and brands with invented
 names. It reproduces Qloo's response shape and the behaviours the agent depends on
 (popularity ceiling honoured, each signal moves the ranking, missing `filter.type` returns
-an empty 200), and nothing in it comes from real Qloo responses. The UI shows a banner
+an empty 200), and nothing in it comes from real Qloo responses. The live parsers accept the same
+envelopes Qloo's own client does (`@qloo/qloo-harness` 0.1.26: `results` as an array or as
+`results.entities` / `results.tags`; ids under `entity_id`/`id`/`tag_id`), and every
+parameter sent is on Qloo's per-type parameter list for artist, place and brand. The UI shows a banner
 whenever any part of a run is synthetic, and the printed brief is stamped "DEMO DATA".
 
 ## Licence
