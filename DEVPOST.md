@@ -25,7 +25,7 @@ past acts that drew well, and how many dates to fill. LineupLab's agent then:
   capacity converted into a popularity ceiling so a 150-cap room is never told to book an
   arena act;
 - re-runs the query without location and without trend bias to show, per act, whether it
-  is a local favourite and whether it is rising;
+  is a local favourite (and whether it is rising, when trend bias moves the ranks);
 - builds one card per date (headliner + support) with the Qloo affinity, popularity band
   against the room, local and trend signals, and a one-line reason grounded in those
   numbers;
@@ -88,8 +88,9 @@ One brief, start to finish. The key stays in a Worker secret; the browser never 
 5. Promotion asks: `/v2/insights` for places within 3 km and for brands, seeded with the
    chosen acts.
 6. Llama 3.3 picks dates and writes the pitch from Qloo candidates only; a name outside
-   that set is rejected in code. Live run on the demo deployment: 14 Qloo calls, 4 LLM
-   calls, about 14 seconds.
+   that set is rejected in code. A live run on the deployed app (Wicker Park, Chicago,
+   150-cap, 3 dates): 13 Qloo calls, 4 LLM calls, about 60 seconds under the key's
+   5-requests-a-second limit.
 
 ## Try it from a clean machine
 
