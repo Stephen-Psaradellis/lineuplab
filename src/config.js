@@ -6,7 +6,7 @@ export const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 export const QLOO_BASE_URL = 'https://hackathon.api.qloo.com';
 
 // Bump to invalidate every cached result after a pipeline change.
-export const RESULT_VERSION = 'r3';
+export const RESULT_VERSION = 'r4';
 
 // Capacity tiers -> Qloo popularity ceiling.
 //
@@ -55,6 +55,8 @@ export const QLOO = {
   placesTake: 12,
   brandsTake: 12,
   timeoutMs: 12000,
+  perSecond: 4, // the hackathon key allows 5/s; one spare for the other isolate
+  attempts: 4, // per request: 429 / 5xx / network errors wait and retry
   maxTagKeywords: 4,
 };
 

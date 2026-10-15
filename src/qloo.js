@@ -66,10 +66,44 @@ function friendly(status) {
   return `Qloo returned HTTP ${status} - usually a malformed parameter.`;
 }
 
+// The hackathon key allows 5 requests per second (X-Second-RateLimit-Limit) and 10,000 a
+// month. The agent fans out in parallel, so every request first takes a slot here: at most
+// `perSecond` starts in any rolling second, shared by the whole isolate.
+export function createLimiter(perSecond = QLOO.perSecond, now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  const starts = [];
+  let chain = Promise.resolve();
+  return function take() {
+    const turn = chain.then(async () => {
+      for (;;) {
+        const t = now();
+        while (starts.length && t - starts[0] >= 1000) starts.shift();
+        if (starts.length < perSecond) {
+          starts.push(t);
+          return;
+        }
+        await sleep(1000 - (t - starts[0]) + 5);
+      }
+    });
+    chain = turn.catch(() => {});
+    return turn;
+  };
+}
+
+const sharedLimiter = createLimiter();
+
+// How long a 429 asks us to wait: X-Second-RateLimit-Reset is seconds (fractional).
+export function retryDelayMs(res, attempt) {
+  const h = res && res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-second-ratelimit-reset') || res.headers.get('retry-after') : null;
+  const s = num(h);
+  const base = s !== null && s >= 0 && s <= 5 ? s * 1000 + 50 : 700;
+  return base + attempt * 300;
+}
+
 // createQloo returns the tool set the agent calls. `onCall` receives a trace-ready record
 // for every request (cached or not).
-export function createQloo({ env = {}, cache, fetchImpl, onCall } = {}) {
+export function createQloo({ env = {}, cache, fetchImpl, onCall, limiter, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const mode = qlooMode(env);
+  const take = limiter || (mode === 'mock' ? async () => {} : sharedLimiter);
   const base = (env.QLOO_BASE_URL || QLOO_BASE_URL).replace(/\/+$/, '');
   const doFetch = mode === 'mock' ? mockQlooFetch : fetchImpl || ((...a) => fetch(...a));
   let calls = 0;
@@ -89,7 +123,9 @@ export function createQloo({ env = {}, cache, fetchImpl, onCall } = {}) {
     calls++;
     const url = `${base}${path}?${toQueryString(clean)}`;
     let res;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const attempts = QLOO.attempts;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      await take();
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), QLOO.timeoutMs);
       try {
@@ -100,12 +136,15 @@ export function createQloo({ env = {}, cache, fetchImpl, onCall } = {}) {
         });
       } catch (err) {
         clearTimeout(timer);
-        if (attempt === 1) throw new QlooError(err && err.name === 'AbortError' ? 'Qloo did not answer in time.' : 'Could not reach Qloo.', 0);
+        // the cause (never the key: it lives only in a header) goes to the Worker log
+        console.error('qloo fetch failed', tool, path, attempt, err && err.name, err && err.message);
+        if (attempt === attempts - 1) throw new QlooError(err && err.name === 'AbortError' ? 'Qloo did not answer in time.' : 'Could not reach Qloo.', 0);
+        await sleep(400 + attempt * 400);
         continue;
       }
       clearTimeout(timer);
-      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 700));
+      if ((res.status === 429 || res.status >= 500) && attempt < attempts - 1) {
+        await sleep(retryDelayMs(res, attempt));
         continue;
       }
       break;

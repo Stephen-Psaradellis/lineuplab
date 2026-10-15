@@ -134,6 +134,10 @@ export function buildCandidates(main, noLocation, noTrend, tier, excludeIds = []
   const gen = rank(noLocation);
   const nt = rank(noTrend);
   const skip = new Set(excludeIds);
+  // Measured 10-15 on the hackathon key: bias.trends low/medium/high returned the same ranks
+  // as no bias at all. When it moves nothing, a 'Steady' on every card is not a finding, so
+  // the signal is marked inert and the UI drops it.
+  const inert = noTrend.length > 0 && main.every((e, i) => nt.get(e.entity_id || lc(e.name)) === i + 1);
   return main
     .filter((e) => !skip.has(e.entity_id))
     .map((e, i) => {
@@ -146,7 +150,7 @@ export function buildCandidates(main, noLocation, noTrend, tier, excludeIds = []
         popularity_band: popularityBand(e.popularity),
         fit: sizeFit(e.popularity, tier),
         local: localSignal(i + 1, gen.get(key) ?? null),
-        trend: trendSignal(i + 1, nt.get(key) ?? null),
+        trend: inert ? { delta: 0, label: 'n/a', text: "Qloo's trend bias did not change any rank for this query", inert: true } : trendSignal(i + 1, nt.get(key) ?? null),
         tags: e.tags.filter((t) => /genre/.test(t.type) || /genre/.test(t.id)).map((t) => t.name).slice(0, 4),
         explainability: e.explainability,
       };
@@ -158,7 +162,7 @@ export function evidenceWhy(c, input) {
   const parts = [`Affinity ${c.affinity?.toFixed(2) ?? 'n/a'} with ${who} around ${input.location}`];
   parts.push(c.local.general == null ? 'only ranks with the location signal' : `${c.local.text}`);
   if (typeof c.popularity === 'number') parts.push(`popularity ${c.popularity.toFixed(2)} under your ${input.tier.popMax.toFixed(2)} ceiling`);
-  if (c.trend.label !== 'Steady') parts.push(c.trend.label.toLowerCase() + ' with trend bias');
+  if (c.trend.label !== 'Steady' && !c.trend.inert) parts.push(c.trend.label.toLowerCase() + ' with trend bias');
   return parts.join('; ') + '.';
 }
 
@@ -431,7 +435,7 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   step({
     lane: 'agent',
     title: 'Scored the candidate pool',
-    detail: `${candidates.length} candidates. ${overIndex} rank clearly higher here than without the location signal; ${candidates.filter((c) => c.trend.label === 'Rising').length} rise with trend bias.`,
+    detail: `${candidates.length} candidates. ${overIndex} rank clearly higher here than without the location signal; ${candidates.some((c) => c.trend.inert) ? "Qloo's trend bias changed no rank, so cards carry no trend signal." : `${candidates.filter((c) => c.trend.label === 'Rising').length} rise with trend bias.`}`,
     stats: [
       { label: 'candidates', value: String(candidates.length) },
       { label: 'local over-index', value: String(overIndex) },

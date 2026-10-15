@@ -99,7 +99,7 @@ Live: https://lineuplab.s-n-psaradellis.workers.dev. Locally, with Node 20+:
 git clone https://github.com/Stephen-Psaradellis/lineuplab && cd lineuplab
 npm install
 npx wrangler dev --env demo   # offline, no key, synthetic data, says so on screen
-npm test                      # 39 tests, no network
+npm test                      # 48 tests, no network
 ```
 
 For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
@@ -113,6 +113,9 @@ For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
   still checks availability and price.
 - "Local" and "rising" are differences between two Qloo answers, so they inherit Qloo's
   coverage: thin markets give thin signals, and the app says when a result came back empty.
+  On the hackathon key, `bias.trends` (low, medium or high) returned the same ranks as no
+  bias in every query we tried, so when it moves nothing the cards drop the trend chip and
+  the trace says why, rather than calling every act "steady".
 - No personal data is sent to Qloo: only the venue's city, an age band, tags and act names.
 
 ## Challenges we ran into
@@ -128,6 +131,10 @@ For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
 - **Keeping the LLM honest.** Models like to name famous acts. The lineup picker only sees
   Qloo candidates, and any name it returns that is not in that set is rejected in code and
   replaced by a deterministic pick, with the rejection shown in the trace.
+- **Five requests a second.** The hackathon key allows 5 calls per second
+  (`X-Second-RateLimit-*` headers) and the agent fans out in parallel, so the first live run
+  failed with 429s. Every Qloo call now takes a slot from a shared limiter (4 per rolling
+  second) and a 429 waits for the reset the header names before retrying.
 - **Making numbers mean something to a venue owner.** A popularity percentile means little
   on its own, so each act is shown as a room size (Emerging, Club, Theatre, Arena) against
   the room's ceiling.
