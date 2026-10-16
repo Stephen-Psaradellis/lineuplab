@@ -218,6 +218,28 @@ test('when no name matches a locality, artists run without location and places a
   assert.ok(r.trace.some((s) => /nearby places are skipped/.test(s.detail || '')));
 });
 
+// Qloo can match a neighbourhood and still hold no taste data for it: an empty 200 with
+// every signal relaxed ("East Nashville, Nashville, TN" live, 10-16).
+test('a matched neighbourhood with no artist data starts over at the city', async () => {
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    const p = new URL(url).searchParams;
+    const loc = p.get('signal.location.query') || p.get('filter.location.query');
+    if (loc) seen.push(loc);
+    if (loc && /wicker park/i.test(loc) && p.get('filter.type') === 'urn:entity:artist') {
+      return new Response(JSON.stringify({ success: true, results: { entities: [] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return mockQlooFetch(url, init);
+  };
+  const v = validateInput(BRIEF);
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
+  const r = await runAgent(v.input, { qloo, llm: createLLM({ env: {} }) });
+  assert.equal(r.lineup.length, 3);
+  assert.ok(r.trace.some((s) => s.status === 'fallback' && /no taste data/.test(s.title)));
+  assert.ok(seen.some((l) => !/wicker park/i.test(l)), 'retried at a broader locality');
+  assert.ok(!/wicker park/i.test(r.plan.location_query));
+});
+
 test('a 400 that is not about the location still fails loudly', async () => {
   const fetchImpl = async (url, init) => (url.includes('/v2/insights') ? new Response('{}', { status: 400 }) : mockQlooFetch(url, init));
   const v = validateInput(BRIEF);

@@ -33,8 +33,9 @@ past acts that drew well, and how many dates to fill. LineupLab's agent then:
   and suggests a concrete co-promotion for each;
 - writes a ready-to-post announcement per date, aimed at that audience's adjacent tastes;
 - shows a **Without Qloo** view: the same LLM with the same brief and no Qloo, with each of
-  its suggestions size-checked in Qloo. It reliably names famous acts several times too big
-  for the room, with no tie to the neighbourhood.
+  its suggestions size-checked in Qloo. In our runs it names well-known acts far above the
+  room's ceiling (East Nashville, 150-cap: 6 of 6 at Qloo popularity 0.92-0.99 against a
+  0.60 ceiling), with no tie to the neighbourhood.
 
 Every step streams to the page as a live trace, including each Qloo request and its key
 numbers. The result exports as copyable text or a one-page printable booking brief.
@@ -62,9 +63,9 @@ Qloo is not an add-on to LineupLab; it is the product. The lineup comes from
 `/v2/insights` with `signal.location.query` and `signal.demographics.age` (whose taste),
 `filter.popularity.max` from the room's capacity (what the room can hold),
 `signal.interests.tags` and `signal.interests.entities` from the venue's vibe and past
-draws, and `bias.trends` (who is rising). LineupLab then uses Qloo as an instrument rather
+draws, and `bias.trends` (who is rising, when the key's trend data moves the ranks). LineupLab then uses Qloo as an instrument rather
 than a list: it re-asks the same question without the location signal and without trend
-bias, and the rank differences become the "local" and "rising" evidence on every card.
+bias, and the rank differences become the "local" (and, when trends move, "rising") evidence on every card.
 Cross-domain `/v2/insights` calls for places (within 3 km of the venue) and brands, seeded
 with the chosen artists, turn a lineup into a promotion plan. Finally, Qloo audits the LLM:
 the Without Qloo tab looks up every act the model suggests on its own and shows how far
@@ -75,8 +76,8 @@ wrong-sized answer.
 
 One brief, start to finish. The key stays in a Worker secret; the browser never sees it.
 
-1. Brief: "The Basement, Nashville TN, small room (under 300), indie rock, past draw:
-   Snail Mail, 3 dates".
+1. Brief: "East Nashville, Nashville, TN, small room (up to 150), age 25-29, indie rock,
+   past draw: Snail Mail, 3 dates".
 2. Tag choice: the agent asks `/v2/tags` for "indie rock" restricted to music genres
    (`filter.tag.types=urn:tag:genre:music`), so a same-named place or film tag cannot slip
    in; a keyword with no match is dropped and the trace says so.
@@ -84,7 +85,7 @@ One brief, start to finish. The key stays in a Worker secret; the browser never 
    &signal.interests.tags=<indie-rock tag id>&signal.interests.entities=<Snail Mail id>
    &filter.popularity.max=<small-room ceiling>&bias.trends=medium`
 4. Two control asks: the same call without the location signal, and without trend bias.
-   Rank gaps become the "local" and "rising" badges on each card.
+   Rank gaps become the "local" badge on each card (and "rising", when trend bias moves a rank).
 5. Promotion asks: `/v2/insights` for places within 3 km and for brands, seeded with the
    chosen acts.
 6. Llama 3.3 picks dates and writes the pitch from Qloo candidates only; a name outside
@@ -100,7 +101,7 @@ Live: https://lineuplab.s-n-psaradellis.workers.dev. Locally, with Node 20+:
 git clone https://github.com/Stephen-Psaradellis/lineuplab && cd lineuplab
 npm install
 npx wrangler dev --env demo   # offline, no key, synthetic data, says so on screen
-npm test                      # 48 tests, no network
+npm test                      # 49 tests, no network
 ```
 
 For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
@@ -129,6 +130,11 @@ For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
   not an empty 200. The agent walks from the planner's phrase to the user's words to the
   city ("Wicker Park, Chicago" -> "Chicago"), says so in the trace, and if nothing matches
   it drops the location signal for acts and skips nearby places instead of failing the run.
+- **Neighbourhoods Qloo knows but has no taste data for.** "East Nashville, Nashville, TN"
+  matches, yet returns zero artists with every optional signal relaxed, while "Nashville, TN"
+  returns 50. When the whole relax ladder comes back empty, the agent starts over one
+  locality up and says so in the trace, so a judge typing their own neighbourhood still
+  gets a lineup.
 - **Keeping the LLM honest.** Models like to name famous acts. The lineup picker only sees
   Qloo candidates, and any name it returns that is not in that set is rejected in code and
   replaced by a deterministic pick, with the rejection shown in the trace.
@@ -145,9 +151,9 @@ For live data, put a hackathon key in `.dev.vars` as `QLOO_API_KEY` and run
 ## Accomplishments that we're proud of
 
 - The comparison is visible, not claimed: one click shows the same model, without Qloo,
-  recommending acts several times too big for the room.
+  recommending acts far above the room's size ceiling (6 of 6 in the Nashville run).
 - The agent's reasoning is fully inspectable, down to each Qloo request string.
-- Local and trend signals derived from Qloo itself (with/without comparisons), not from
+- Local (and trend) signals derived from Qloo itself (with/without comparisons), not from
   a second data source.
 - A complete small product: empty, loading and error states, export, print, phone layout,
   dark mode, and tests that prove the API key never reaches the browser.

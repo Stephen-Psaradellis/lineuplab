@@ -376,33 +376,49 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   });
   const seedIds = seeds.map((s) => s.entity_id).filter(Boolean);
 
-  // 4. main artist query with relax ladder
-  let opts = { location: locationQuery, age: input.age, tier, tagIds: tags.map((t) => t.id), entityIds: seedIds };
+  // 4. main artist query with relax ladder. Qloo can also MATCH a neighbourhood and hold no
+  // taste data for it: "East Nashville, Nashville, TN" is an empty 200 with every signal
+  // relaxed, while "Nashville, TN" returns 50 acts (live, 10-16). So when the whole relax
+  // ladder comes back empty and a broader locality is left, start over one rung up.
+  const baseOpts = { location: locationQuery, age: input.age, tier, tagIds: tags.map((t) => t.id), entityIds: seedIds };
+  let opts = baseOpts;
   let main = null;
-  let used = null;
-  for (const rs of RELAX_STEPS) {
-    const o = rs.change(opts);
-    if (rs.id !== 'full' && used && JSON.stringify(o) === JSON.stringify(used)) continue; // nothing to relax
-    const params = buildArtistParams(o);
-    const r = await insightsAt(buildArtistParams, o);
-    used = o;
-    const empty = r.entities.length === 0;
+  for (;;) {
+    let used = null;
+    for (const rs of RELAX_STEPS) {
+      const o = rs.change(opts);
+      if (rs.id !== 'full' && used && JSON.stringify(o) === JSON.stringify(used)) continue; // nothing to relax
+      const params = buildArtistParams(o);
+      const r = await insightsAt(buildArtistParams, o);
+      used = o;
+      const empty = r.entities.length === 0;
+      step({
+        lane: 'qloo',
+        status: empty ? 'empty' : r.cached ? 'cached' : 'ok',
+        title: rs.id === 'full' ? 'qloo_insights: artists this neighbourhood over-indexes on' : `qloo_insights retry (${rs.label})`,
+        detail: empty
+          ? 'Empty 200. Qloo answers an ignored or over-tight parameter with zero results rather than an error, so the agent relaxes one constraint and asks again.'
+          : `${r.entities.length} acts under popularity ${params['filter.popularity.max']} for this audience, trend bias ${params['bias.trends'] || 'off'}.`,
+        request: r.request,
+        stats: topStats(r.entities),
+        ms: r.ms,
+      });
+      if (!empty) {
+        main = r.entities;
+        opts = o;
+        break;
+      }
+    }
+    if (main || rung + 1 >= ladder.length) break;
+    const thin = ladder[rung];
+    rung++;
     step({
       lane: 'qloo',
-      status: empty ? 'empty' : r.cached ? 'cached' : 'ok',
-      title: rs.id === 'full' ? 'qloo_insights: artists this neighbourhood over-indexes on' : `qloo_insights retry (${rs.label})`,
-      detail: empty
-        ? 'Empty 200. Qloo answers an ignored or over-tight parameter with zero results rather than an error, so the agent relaxes one constraint and asks again.'
-        : `${r.entities.length} acts under popularity ${params['filter.popularity.max']} for this audience, trend bias ${params['bias.trends'] || 'off'}.`,
-      request: r.request,
-      stats: topStats(r.entities),
-      ms: r.ms,
+      status: 'fallback',
+      title: `qloo_insights: no taste data for "${thin}"`,
+      detail: `Qloo matched the place but returned no artists for it even with every optional signal relaxed, so the agent starts over with the broader "${ladder[rung]}".`,
     });
-    if (!empty) {
-      main = r.entities;
-      opts = o;
-      break;
-    }
+    opts = { ...baseOpts, location: ladder[rung] };
   }
   if (!main) {
     const err = new Error('Qloo returned no artists for this brief, even after relaxing every optional signal. Check the neighbourhood spelling.');
