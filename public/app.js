@@ -216,7 +216,7 @@
         'div',
         { class: 'chips' },
         fitChip(a.fit, a.popularity, a.popularity_band),
-        h('span', { class: `chip ${a.local.label === 'Broad appeal' ? '' : 'chip-accent'}`, title: a.local.text }, h('b', { text: a.local.label }), a.local.general == null ? ` #${a.local.here}` : ` #${a.local.here} vs #${a.local.general}`),
+        a.local.inert ? null : h('span', { class: `chip ${a.local.label === 'Broad appeal' ? '' : 'chip-accent'}`, title: a.local.text }, h('b', { text: a.local.label }), a.local.general == null ? ` #${a.local.here}` : ` #${a.local.here} vs #${a.local.general}`),
         a.trend.inert ? null : h('span', { class: 'chip', title: a.trend.text }, 'Trend ', h('b', { text: a.trend.label })),
       ),
       a.tags && a.tags.length ? h('p', { class: 'tags', text: a.tags.join(' / ') }) : null,
@@ -361,7 +361,7 @@
     for (const d of r.lineup) {
       L.push(`DATE ${d.date}${d.theme ? `: ${d.theme}` : ''}`);
       for (const [role, a] of [['Headliner', d.headliner], ['Support', d.support]]) {
-        L.push(`  ${role}: ${a.name} (affinity ${f2(a.affinity)}, popularity ${f2(a.popularity)} ${a.popularity_band}, ${a.local.label.toLowerCase()}${a.trend.inert ? '' : `, trend ${a.trend.label.toLowerCase()}`})`);
+        L.push(`  ${role}: ${a.name} (affinity ${f2(a.affinity)}, popularity ${f2(a.popularity)} ${a.popularity_band}, ${a.local.inert ? 'no location comparison' : a.local.label.toLowerCase()}${a.trend.inert ? '' : `, trend ${a.trend.label.toLowerCase()}`})`);
         L.push(`    Why: ${a.why}`);
       }
       L.push(`  Announcement: ${d.blurb}`);

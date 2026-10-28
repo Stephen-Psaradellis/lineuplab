@@ -130,14 +130,17 @@ export function trendSignal(rankTrend, rankNoTrend) {
 }
 
 export function buildCandidates(main, noLocation, noTrend, tier, excludeIds = []) {
-  const rank = (list) => new Map(list.map((e, i) => [e.entity_id || lc(e.name), i + 1]));
+  // null = that comparison query failed (Qloo timed out): the signal is unknown, never 'Local pick' / 'Rising'
+  const rank = (list) => new Map((list || []).map((e, i) => [e.entity_id || lc(e.name), i + 1]));
   const gen = rank(noLocation);
   const nt = rank(noTrend);
+  const noLocal = (here) => ({ here, general: null, label: 'n/a', text: 'location comparison unavailable for this run', inert: true });
+  const noTrendSig = { delta: 0, label: 'n/a', text: 'trend comparison unavailable for this run', inert: true };
   const skip = new Set(excludeIds);
   // Measured 10-15 on the hackathon key: bias.trends low/medium/high returned the same ranks
   // as no bias at all. When it moves nothing, a 'Steady' on every card is not a finding, so
   // the signal is marked inert and the UI drops it.
-  const inert = noTrend.length > 0 && main.every((e, i) => nt.get(e.entity_id || lc(e.name)) === i + 1);
+  const inert = noTrend != null && noTrend.length > 0 && main.every((e, i) => nt.get(e.entity_id || lc(e.name)) === i + 1);
   return main
     .filter((e) => !skip.has(e.entity_id))
     .map((e, i) => {
@@ -149,8 +152,8 @@ export function buildCandidates(main, noLocation, noTrend, tier, excludeIds = []
         popularity: r2(e.popularity),
         popularity_band: popularityBand(e.popularity),
         fit: sizeFit(e.popularity, tier),
-        local: localSignal(i + 1, gen.get(key) ?? null),
-        trend: inert ? { delta: 0, label: 'n/a', text: "Qloo's trend bias did not change any rank for this query", inert: true } : trendSignal(i + 1, nt.get(key) ?? null),
+        local: noLocation == null ? noLocal(i + 1) : localSignal(i + 1, gen.get(key) ?? null),
+        trend: noTrend == null ? noTrendSig : inert ? { delta: 0, label: 'n/a', text: "Qloo's trend bias did not change any rank for this query", inert: true } : trendSignal(i + 1, nt.get(key) ?? null),
         tags: e.tags.filter((t) => /genre/.test(t.type) || /genre/.test(t.id)).map((t) => t.name).slice(0, 4),
         explainability: e.explainability,
       };
@@ -160,7 +163,7 @@ export function buildCandidates(main, noLocation, noTrend, tier, excludeIds = []
 export function evidenceWhy(c, input) {
   const who = input.age !== 'any' ? `${AGE_BANDS[input.age].toLowerCase()} listeners` : 'listeners';
   const parts = [`Affinity ${c.affinity?.toFixed(2) ?? 'n/a'} with ${who} around ${input.location}`];
-  parts.push(c.local.general == null ? 'only ranks with the location signal' : `${c.local.text}`);
+  if (!c.local.inert) parts.push(c.local.general == null ? 'only ranks with the location signal' : `${c.local.text}`);
   if (typeof c.popularity === 'number') parts.push(`popularity ${c.popularity.toFixed(2)} under your ${input.tier.popMax.toFixed(2)} ceiling`);
   if (c.trend.label !== 'Steady' && !c.trend.inert) parts.push(c.trend.label.toLowerCase() + ' with trend bias');
   return parts.join('; ') + '.';
@@ -427,26 +430,23 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   }
 
   // 5. local + trend signals
-  const [noLoc, noTrend] = await Promise.all([qloo.insights(buildArtistParams({ ...opts, location: null })), insightsAt(buildArtistParams, { ...opts, trends: null })]);
-  step({
-    lane: 'qloo',
-    status: noLoc.cached ? 'cached' : 'ok',
-    title: 'qloo_insights: same query without the location signal',
-    detail: 'Ranks each act with and without the neighbourhood, to find who over-indexes HERE rather than everywhere.',
-    request: noLoc.request,
-    stats: topStats(noLoc.entities),
-    ms: noLoc.ms,
+  // These two only colour the cards. The main query already answered, so a Qloo timeout here
+  // drops that signal instead of failing the whole brief (10-28: a cold Austin brief 502'd on it).
+  const optional = (p) => p.catch((err) => {
+    if (err && err.name === 'QlooError') return { failed: err.message };
+    throw err;
   });
-  step({
-    lane: 'qloo',
-    status: noTrend.cached ? 'cached' : 'ok',
-    title: 'qloo_insights: same query without trend bias',
-    detail: 'The rank change between the two runs is the trend signal on each card.',
-    request: noTrend.request,
-    stats: topStats(noTrend.entities),
-    ms: noTrend.ms,
-  });
-  const candidates = buildCandidates(main, noLoc.entities, noTrend.entities, tier, seedIds);
+  const [noLoc, noTrend] = await Promise.all([
+    optional(qloo.insights(buildArtistParams({ ...opts, location: null }))),
+    optional(insightsAt(buildArtistParams, { ...opts, trends: null })),
+  ]);
+  const compareStep = (r, title, detail) =>
+    step(r.failed
+      ? { lane: 'qloo', status: 'fallback', title, detail: `${r.failed} This signal is left off the cards for this run.` }
+      : { lane: 'qloo', status: r.cached ? 'cached' : 'ok', title, detail, request: r.request, stats: topStats(r.entities), ms: r.ms });
+  compareStep(noLoc, 'qloo_insights: same query without the location signal', 'Ranks each act with and without the neighbourhood, to find who over-indexes HERE rather than everywhere.');
+  compareStep(noTrend, 'qloo_insights: same query without trend bias', 'The rank change between the two runs is the trend signal on each card.');
+  const candidates = buildCandidates(main, noLoc.failed ? null : noLoc.entities, noTrend.failed ? null : noTrend.entities, tier, seedIds);
   const overIndex = candidates.filter((c) => c.local.label === 'Over-indexes here' || c.local.label === 'Local pick').length;
   step({
     lane: 'agent',

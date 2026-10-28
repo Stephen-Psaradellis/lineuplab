@@ -246,3 +246,24 @@ test('a 400 that is not about the location still fails loudly', async () => {
   const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
   await assert.rejects(runAgent(v.input, { qloo, llm: createLLM({ env: {} }) }), (e) => e.name === 'QlooError' && e.status === 400);
 });
+
+test('a Qloo timeout on the no-location comparison drops that signal, not the whole brief', async () => {
+  const fetchImpl = async (url, init) => {
+    if (url.includes('/v2/insights') && url.includes('urn%3Aentity%3Aartist') && !url.includes('location.query')) {
+      throw Object.assign(new Error('timed out'), { name: 'AbortError' });
+    }
+    return mockQlooFetch(url, init);
+  };
+  const v = validateInput(BRIEF);
+  const env = { QLOO_API_KEY: 'test-key-123456' };
+  const qloo = createQloo({ env, fetchImpl });
+  const r = await runAgent(v.input, { qloo, llm: createLLM({ env: {} }) });
+  const fb = r.trace.find((s) => s.status === 'fallback' && /without the location signal/.test(s.title));
+  assert.ok(fb, 'fallback step present');
+  assert.match(fb.detail, /did not answer in time/);
+  assert.equal(r.lineup.length, 3);
+  for (const d of r.lineup) {
+    assert.equal(d.headliner.local.inert, true);
+    assert.notEqual(d.headliner.local.label, 'Local pick');
+  }
+});
