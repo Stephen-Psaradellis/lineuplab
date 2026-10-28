@@ -124,6 +124,7 @@ export function createQloo({ env = {}, cache, fetchImpl, onCall, limiter, sleep 
     const url = `${base}${path}?${toQueryString(clean)}`;
     let res;
     const attempts = QLOO.attempts;
+    let timeouts = 0;
     for (let attempt = 0; attempt < attempts; attempt++) {
       await take();
       const ctrl = new AbortController();
@@ -138,7 +139,9 @@ export function createQloo({ env = {}, cache, fetchImpl, onCall, limiter, sleep 
         clearTimeout(timer);
         // the cause (never the key: it lives only in a header) goes to the Worker log
         console.error('qloo fetch failed', tool, path, attempt, err && err.name, err && err.message);
-        if (attempt === attempts - 1) throw new QlooError(err && err.name === 'AbortError' ? 'Qloo did not answer in time.' : 'Could not reach Qloo.', 0);
+        const timedOut = err && err.name === 'AbortError';
+        if (timedOut) timeouts++;
+        if (attempt === attempts - 1 || timeouts >= QLOO.timeoutAttempts) throw new QlooError(timedOut ? 'Qloo did not answer in time.' : 'Could not reach Qloo.', 0);
         await sleep(400 + attempt * 400);
         continue;
       }

@@ -247,6 +247,17 @@ test('a 400 that is not about the location still fails loudly', async () => {
   await assert.rejects(runAgent(v.input, { qloo, llm: createLLM({ env: {} }) }), (e) => e.name === 'QlooError' && e.status === 400);
 });
 
+test('a timing-out Qloo request is tried twice, not four times', async () => {
+  let tries = 0;
+  const fetchImpl = async () => {
+    tries++;
+    throw Object.assign(new Error('timed out'), { name: 'AbortError' });
+  };
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl, limiter: async () => {}, sleep: async () => {} });
+  await assert.rejects(qloo.search('Spoon'), /did not answer in time/);
+  assert.equal(tries, 2);
+});
+
 test('a Qloo timeout on the no-location comparison drops that signal, not the whole brief', async () => {
   const fetchImpl = async (url, init) => {
     if (url.includes('/v2/insights') && url.includes('urn%3Aentity%3Aartist') && !url.includes('location.query')) {

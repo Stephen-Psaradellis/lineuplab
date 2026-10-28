@@ -57,6 +57,7 @@ export const QLOO = {
   timeoutMs: 12000,
   perSecond: 4, // the hackathon key allows 5/s; one spare for the other isolate
   attempts: 4, // per request: 429 / 5xx / network errors wait and retry
+  timeoutAttempts: 2, // a 12 s timeout rarely recovers: 4 of them kept a cold Boise brief waiting 51 s (10-28)
   maxTagKeywords: 4,
 };
 
