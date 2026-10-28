@@ -500,14 +500,20 @@ export async function runAgent(input, { qloo, llm, emit = () => {} }) {
   const chosenIds = lineup.flatMap((d) => [d.headliner.entity_id, d.support.entity_id]).filter(Boolean).slice(0, 8);
 
   // 7. cross-domain: places near the venue + brands
-  let placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, age: input.age }, { filter: true });
+  // Like step 5, these only add partner ideas: the lineup is already chosen, so a Qloo failure
+  // here leaves that section empty instead of throwing the finished lineup away (10-28).
+  const skipped = (err) => {
+    if (!(err && err.name === 'QlooError')) throw err;
+    return { entities: [], request: `skipped: ${err.message}`, cached: false, ms: 0, located: true };
+  };
+  let placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, age: input.age }, { filter: true }).catch(skipped);
   let placeNote = '';
-  if (!placesR.entities.length && placesR.located) {
+  if (!placesR.entities.length && placesR.located && !placesR.request.startsWith('skipped')) {
     step({ lane: 'qloo', status: 'empty', title: 'qloo_insights: nearby places (empty)', detail: 'Empty 200; retrying with a wider radius and no age signal.', request: placesR.request, stats: [{ label: 'results', value: '0' }], ms: placesR.ms });
-    placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, radius: QLOO.placeRadiusMeters * 3 }, { filter: true });
+    placesR = await insightsAt(buildPlaceParams, { location: locationQuery, artistIds: chosenIds, radius: QLOO.placeRadiusMeters * 3 }, { filter: true }).catch(skipped);
     placeNote = ' (wider radius)';
   }
-  const brandsR = await insightsAt(buildBrandParams, { location: locationQuery, artistIds: chosenIds, age: input.age });
+  const brandsR = await insightsAt(buildBrandParams, { location: locationQuery, artistIds: chosenIds, age: input.age }).catch(skipped);
   step({
     lane: 'qloo',
     status: placesR.entities.length ? (placesR.cached ? 'cached' : 'ok') : 'empty',

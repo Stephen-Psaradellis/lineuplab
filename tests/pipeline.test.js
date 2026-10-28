@@ -267,3 +267,18 @@ test('a Qloo timeout on the no-location comparison drops that signal, not the wh
     assert.notEqual(d.headliner.local.label, 'Local pick');
   }
 });
+
+test('a Qloo failure on nearby places and brands keeps the finished lineup', async () => {
+  const fetchImpl = async (url, init) => {
+    if (url.includes('/v2/insights') && (url.includes('urn%3Aentity%3Aplace') || url.includes('urn%3Aentity%3Abrand'))) {
+      throw new TypeError('Too many subrequests.');
+    }
+    return mockQlooFetch(url, init);
+  };
+  const v = validateInput(BRIEF);
+  const qloo = createQloo({ env: { QLOO_API_KEY: 'test-key-123456' }, fetchImpl });
+  const r = await runAgent(v.input, { qloo, llm: createLLM({ env: {} }) });
+  assert.equal(r.lineup.length, 3);
+  assert.deepEqual(r.copromote, { places: [], brands: [] });
+  assert.ok(r.trace.some((s) => /places near the venue/.test(s.title) && s.status === 'empty'));
+});

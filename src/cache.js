@@ -30,7 +30,11 @@ const cacheUrl = (key) => `https://lineuplab-cache.invalid/${encodeURIComponent(
 
 export function createCache(env = {}) {
   const kv = env.CACHE && typeof env.CACHE.get === 'function' ? env.CACHE : null;
-  const layers = ['memory', kv ? 'kv' : null, cacheApi() ? 'cache-api' : null].filter(Boolean);
+  // KV and the Cache API both count against the Worker's 50-subrequest cap, and a cold brief
+  // makes ~14 Qloo calls; with both layers a miss cost 4 cache ops + the fetch and the late
+  // steps hit the cap (10-28). The Cache API is only the fallback when KV is not bound.
+  const edge = kv ? null : cacheApi();
+  const layers = ['memory', kv ? 'kv' : null, edge ? 'cache-api' : null].filter(Boolean);
 
   return {
     layers,
@@ -48,7 +52,7 @@ export function createCache(env = {}) {
             return v;
           }
         }
-        const c = cacheApi();
+        const c = edge;
         if (c) {
           const res = await c.match(cacheUrl(key));
           if (res) {
@@ -66,7 +70,7 @@ export function createCache(env = {}) {
       remember(key, value, ttlSeconds);
       try {
         if (kv) await kv.put(key, JSON.stringify(value), { expirationTtl: Math.max(60, ttlSeconds) });
-        const c = cacheApi();
+        const c = edge;
         if (c) {
           await c.put(
             cacheUrl(key),
